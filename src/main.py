@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Query
 from datetime import datetime, timedelta
 from fastapi.middleware.cors import CORSMiddleware
 from elasticsearch import Elasticsearch
@@ -33,49 +33,77 @@ def app_info():
 def cve_five_days():
     try:
         last_twenty_days = datetime.now() - timedelta(days=20)
-        export_cve = []
-        response = client.get(index="cve", id=1)
-        for i in response.get("_source", {}).get("vulnerabilities", []): 
-            date_from = datetime.fromisoformat(i.get("dateAdded", ""))
-            if date_from >= last_twenty_days:
-                export_cve.append(i)
-            if len(export_cve) == 40:
-                break
+        response = client.search(
+            index="cve",
+            body={
+                "query": {
+                    "range": {
+                        "vulnerabilities.dateAdded": {
+                            "gte": last_twenty_days.isoformat()
+                        }
+                    }
+                },
+                "size": 40
+            }
+        )
+        export_cve = response['hits']['hits']
     except Exception as e:
         print(e)
+        export_cve = []
     return export_cve
 
 @app.get("/get/new")
 def new_cve():
-    response = client.get(index="cve", id=1)
-    new_cve_ten = sorted(response.get("_source", {}).get("vulnerabilities", []), key=lambda i: i["dateAdded"])
-    return new_cve_ten[-10:]
+    response = client.search(
+        index="cve",
+        body={
+            "query": {
+                "match_all": {}
+            },
+            "sort": [
+                {"vulnerabilities.dateAdded": {"order": "desc"}}
+            ],
+            "size": 10
+        }
+    )
+    new_cve_ten = response['hits']['hits']
+    return new_cve_ten
 
 @app.get("/get/known")
 def get_known_cve():
     try:
-        response = client.get(index="cve", id=1)
-        ten_cve = []
-
-        for i in response.get("_source", {}).get("vulnerabilities", []):
-            if "Known" == i.get("knownRansomwareCampaignUse", ""):
-                ten_cve.append(i)
-            if len(ten_cve) == 10:
-                break
+        response = client.search(
+            index="cve",
+            body={
+                "query": {
+                    "term": {
+                        "vulnerabilities.knownRansomwareCampaignUse": "Known"
+                    }
+                },
+                "size": 10
+            }
+        )
+        ten_cve = response['hits']['hits']
     except Exception as e:
         print(e)
+        ten_cve = []
     return ten_cve
 
 @app.get("/get")
-def key_cve(query):
+def key_cve(query: str = Query(...)):
     try:
-        response = client.get(index="cve", id=1)
-        keyw_cve = []
-
-        for i in response.get("_source", {}).get("vulnerabilities", []):
-            if query.lower() in i.get("shortDescription", "").lower():
-                keyw_cve.append(i)
+        response = client.search(
+            index="cve",
+            body={
+                "query": {
+                    "match": {
+                        "vulnerabilities.shortDescription": query
+                    }
+                }
+            }
+        )
+        keyw_cve = response['hits']['hits']
     except Exception as e:
         print(e)
+        keyw_cve = []
     return keyw_cve
-
